@@ -1,0 +1,16 @@
+# Why this file exists: shared editor settings. The actual formatting is enforced by Spotless
+# (google-java-format) in CI; this just keeps editors consistent with it (two-space indent).
+#
+# JS/TS vs Java: the counterpart of .editorconfig/.prettierrc in a JS project. The formatter that
+# CI runs is `mvn spotless:check`, so formatting is checked mechanically, not argued about.
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.xml]
+indent_style = tab
