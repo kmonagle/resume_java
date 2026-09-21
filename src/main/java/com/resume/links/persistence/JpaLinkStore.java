@@ -2,7 +2,7 @@
 // depends on the LinkStore interface; this is the real implementation, on top of Spring Data JPA.
 // The schema is owned by the Next.js repo's migrations; this service never migrates.
 //
-// JS/TS vs Java: this is the counterpart of link-repository.ts (Drizzle) in the Next.js repo.
+// JS/TS vs Java: this is the data layer that a Node app would write with Drizzle or Prisma.
 package com.resume.links.persistence;
 
 import com.resume.links.domain.Link;

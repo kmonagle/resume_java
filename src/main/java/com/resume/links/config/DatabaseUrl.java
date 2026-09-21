@@ -3,8 +3,8 @@
 // `jdbc:postgresql://host/db` with the username and password supplied separately. This converts
 // one to the other and applies the settings that matter for a shared, PgBouncer-fronted database.
 //
-// JS/TS vs Java: this is the counterpart of src/server/db/client.ts in the Next.js repo. The
-// postgres.js driver accepts a URL directly; JDBC does not, so we do it here.
+// JS/TS vs Java: Node's postgres.js driver accepts a URL directly; JDBC does not, so we do it
+// here.
 package com.resume.links.config;
 
 import java.net.URI;

@@ -1,8 +1,7 @@
 // Why this file exists: the business rules, between HTTP (the controller) and SQL (the store):
 // demo size limits, retention cleanup, short-code generation with retry, and how a redirect
-// decides 404 vs 410. It is the Java counterpart of the Next.js app's local adapter
-// (src/server/link-api/local.ts) and of the Go, Python and C# services, and the contract tests
-// hold all of them to the same behaviour.
+// decides 404 vs 410. It is the Java counterpart of the Go, Python and C# services'
+// business-rule layers, and the contract tests hold all of them to the same behaviour.
 package com.resume.links.service;
 
 import com.resume.links.domain.Link;

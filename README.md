@@ -1,14 +1,15 @@
 # resume_java — the link backend, in Java (Spring Boot)
 
-One of five implementations of the short-link API. The Next.js app in
-[`resume_nextjs`](https://github.com/kmonagle/resume_nextjs) can serve links itself out of its own
-code, and the [Go](https://github.com/kmonagle/resume_go),
+One of four backends (Go, Python, C#, Java) for the short-link API. The Next.js app in
+[`resume_nextjs`](https://github.com/kmonagle/resume_nextjs) is the UI/BFF and does not serve links
+itself; it always calls one of the [Go](https://github.com/kmonagle/resume_go),
 [Python](https://github.com/kmonagle/resume_python) and
-[C#](https://github.com/kmonagle/resume_csharp) services do the same job; this one does it in Java.
+[C#](https://github.com/kmonagle/resume_csharp) services or this one, which does the job in Java.
 All of them are held to the **identical contract test suite**, which is the point: the contract, not
 the language, defines the system.
 
-**Implements contract `contract-v1`** (the tag pinned in `.github/workflows/ci.yml`).
+The contract is `docs/openapi.yaml` in `resume_nextjs`. For the side-by-side overview of all four backends, start at
+[resume_nextjs: Start here](https://github.com/kmonagle/resume_nextjs#start-here).
 
 Read this README for how the services fit together and why the design is the way it is. Read the code
 for the Java: every file opens with a comment on why it exists, and comments tagged **`JS/TS vs Java:`**
@@ -37,9 +38,8 @@ comment at the top of `src/main/java/com/resume/links/LinksApplication.java`.
 - The **browser never talks to this service**. It only sees the Next.js domain, so there is no CORS or
   cross-site-cookie problem, and the bearer token and this service's URL never reach client JavaScript.
   Next.js is a **BFF** (backend-for-frontend).
-- Next.js picks its backend with an environment variable, `LINK_BACKEND`: **`local`** (its own Drizzle
-  code) or **`remote`** (call one of these services, at `LINK_BACKEND_URL`). Point it at Go, Python, C#
-  or Java and the UI can't tell.
+- Next.js holds no data and serves no links itself. It calls one backend at `LINK_BACKEND_URL`. Point it
+  at Go, Python, C# or Java and the UI can't tell.
 - **All backends share one Postgres database**, so links carry across them.
 
 ### Who owns what
@@ -48,10 +48,10 @@ comment at the top of `src/main/java/com/resume/links/LinksApplication.java`.
 |---|---|
 | UI, dashboard polling, forms, the visitor cookie | Next.js |
 | Input validation | **Both**: Next validates first (fast form errors); this service validates again because it must not trust its caller. Rules and messages match. |
-| Business rules (limits, retention, 404 vs 410), atomic click counting | **Every backend**, with the same behaviour |
-| Click event logging | Whoever serves the redirect (here). Next.js must not log too or clicks double count. |
+| Business rules (limits, retention, 404 vs 410), atomic click counting | **This service** (every backend behaves the same) |
+| Click event logging | This service, which serves the redirect. Next.js must not log too or clicks double count. |
 | **Database schema and migrations** | **The Next.js repo.** This service never migrates. |
-| The contract (OpenAPI spec + tests) | The Next.js repo, pinned by tag |
+| The contract (OpenAPI spec + tests) | The Next.js repo (this service's CI checks out `main`) |
 
 ### How each Next.js feature becomes calls to this service
 
@@ -192,7 +192,6 @@ so the two would wake together; that was removed because server-to-server reques
 
 - **Don't try to keep everything awake.** A free workspace gets about 750 instance-hours a month. One
   always-on service uses about 730; two would run out mid-month.
-- `LINK_BACKEND=local` needs no second service at all.
 
 On this side, the JVM is the **slowest of the backends to start**: about 1.5 seconds on a laptop, and
 several times that on a free instance's shared CPU. The app is built to keep that short. It **doesn't
@@ -241,11 +240,12 @@ slower than the rest, since the JVM compiles code as it runs.
 
 ## The contract
 
-`docs/openapi.yaml` in the Next.js repo is the source of truth. `.github/workflows/ci.yml` here pins the
-version this service implements (`CONTRACT_REF: contract-v1`, a git tag); CI checks it out, applies its
-`drizzle/*.sql` to a throwaway Postgres, starts this service, and runs the shared suite against it. To
-upgrade, bump the tag, make the new tests pass, and merge; other backends can stay on the old tag
-meanwhile, so prefer *additive* contract changes.
+`docs/openapi.yaml` in the Next.js repo is the source of truth. `.github/workflows/ci.yml` here checks
+out that repo's `main` (`CONTRACT_REF: main`), applies its `drizzle/*.sql` to a throwaway Postgres,
+starts this service, and runs the shared suite against it. A contract change therefore turns this CI red
+until this service is updated. The trade-off is that CI depends on the contract's current state, which is
+fine with a single owner. The same suite also runs through Next.js in front of this backend (the Next.js
+CI `remote` matrix).
 
 **Where a framework default disagreed with the contract** (each one is a place the tests or the logs
 would have caught it, and each is fixed and commented in the code):
@@ -262,17 +262,17 @@ would have caught it, and each is fixed and commented in the code):
 | The driver creates server-side prepared statements that PgBouncer can't keep | it must work on Neon's pooled URL | `prepareThreshold=0` in `DatabaseUrl` |
 | Neon's URL isn't a JDBC URL | connect with the URL Neon hands out | `config/DatabaseUrl.java` |
 
-### Five implementations, side by side
+### Four backends, side by side
 
-| Java (this repo) | Go (`resume_go`) | Python (`resume_python`) | C# (`resume_csharp`) | Next.js (`resume_nextjs`) | Job |
-|---|---|---|---|---|---|
-| `persistence/` | `internal/store` | `app/store.py`, `models.py` | `Data/` | `link-repository.ts`, `schema.ts` | the only code that runs queries; the table definitions |
-| `service/LinkService` | `internal/service` | `app/service.py` | `Services/` | `link-api/local.ts` | limits, retention, codes, 404 vs 410 |
-| `web/LinkController` | `internal/api` | `app/api.py` | `Endpoints/` | `src/app/api/**`, `src/app/r/**` | HTTP handlers |
-| `web/AuthInterceptor` | `protected` middleware | `require_owner` | `RequireOwnerFilter` | (cookie identity) | bearer token + owner |
-| `web/CreateLinkValidator`, `LinkDto` | `internal/link/validate.go` | `app/schemas.py` | `Contracts/` | `link-schema.ts`, `link-dto.ts` | input validation, wire format |
-| `domain/` | `internal/link/link.go` | `app/domain.py` | `Domain/` | `link-status.ts` | "is this link usable?" |
-| `config/` | `internal/config` | `app/config.py`, `db.py` | `Configuration/` | `env.ts`, `db/client.ts` | environment variables; connecting to Postgres |
+| Java (this repo) | Go (`resume_go`) | Python (`resume_python`) | C# (`resume_csharp`) | Job |
+|---|---|---|---|---|
+| `persistence/` | `internal/store` | `app/store.py`, `models.py` | `Data/` | the only code that runs queries; the table definitions |
+| `service/LinkService` | `internal/service` | `app/service.py` | `Services/` | limits, retention, codes, 404 vs 410 |
+| `web/LinkController` | `internal/api` | `app/api.py` | `Endpoints/` | HTTP handlers |
+| `web/AuthInterceptor` | `protected` middleware | `require_owner` | `RequireOwnerFilter` | bearer token + owner |
+| `web/CreateLinkValidator`, `LinkDto` | `internal/link/validate.go` | `app/schemas.py` | `Contracts/` | input validation, wire format |
+| `domain/` | `internal/link/link.go` | `app/domain.py` | `Domain/` | "is this link usable?" |
+| `config/` | `internal/config` | `app/config.py`, `db.py` | `Configuration/` | environment variables; connecting to Postgres |
 
 The trade-offs show up in the numbers: this image is ~400 MB (it carries a Java runtime), against ~380 MB
 for C#, ~270 MB for Python and ~20 MB for Go's single static binary.
@@ -284,7 +284,7 @@ for C#, ~270 MB for Python and ~20 MB for Go's single static binary.
 | `DATABASE_URL` | this service | Postgres URL. Use Neon's **pooled** URL in production. |
 | `LINK_BACKEND_TOKEN` | this service **and** Next.js | Shared secret, 16+ characters. **Must be identical on both.** |
 | `PORT` | this service | Render sets it; defaults to `8080`. |
-| `LINK_BACKEND=remote`, `LINK_BACKEND_URL` | Next.js | Point Next.js at this service's public URL. |
+| `LINK_BACKEND_URL` | Next.js | Set on the Next.js service: this service's public URL. |
 
 ## Run it locally
 
@@ -302,7 +302,7 @@ docker run --rm -p 8080:8080 \
 #    DATABASE_URL=... LINK_BACKEND_TOKEN=... ./mvnw spring-boot:run
 
 # 3. Next.js in front of it (from ../resume_nextjs)
-LINK_BACKEND=remote LINK_BACKEND_URL=http://localhost:8080 \
+LINK_BACKEND_URL=http://localhost:8080 \
 LINK_BACKEND_TOKEN=local-dev-token-0123456789 npm run dev
 ```
 
@@ -322,7 +322,7 @@ CONTRACT_API_PREFIX="" CONTRACT_TOKEN=local-dev-token-0123456789 npm run test:co
 
 Create a **Web Service** from this repo, runtime **Docker**, and set `DATABASE_URL` (the Neon **pooled**
 URL) and `LINK_BACKEND_TOKEN`. Render provides `PORT`. Set the health check path to `/meta`. To use it,
-set `LINK_BACKEND=remote`, `LINK_BACKEND_URL` and the same `LINK_BACKEND_TOKEN` on the Next.js service.
+set `LINK_BACKEND_URL` and the same `LINK_BACKEND_TOKEN` on the Next.js service.
 Setting **Auto-Deploy** to "After CI Checks Pass" keeps a broken push out of production.
 
 ## Troubleshooting
@@ -338,7 +338,7 @@ Setting **Auto-Deploy** to "After CI Checks Pass" keeps a broken push out of pro
 | Clicks never appear in `click_events` | The `@Async` task is failing (see the log for "Recording click event failed"), or `@EnableAsync` was removed from `AppConfig`. |
 | Clicks counted twice | Something else is also logging click events. |
 | A test mentions `tools.jackson` | Spring Boot 4 uses Jackson 3, whose packages are `tools.jackson.*`, not the older `com.fasterxml.jackson.*`. |
-| CI can't check out the contract | The tag isn't pushed, the Next.js repo is private, or `CONTRACT_REPO` is wrong. |
+| CI can't check out the contract | The Next.js repo is private, or `CONTRACT_REPO` is wrong. |
 
 ## Layout
 
@@ -377,8 +377,8 @@ Each of these is a choice with a reason, and the trade-off is stated so it can b
   never see a response for work that isn't committed yet.
 - **A `LinkStore` interface between the service and JPA.** Spring apps often inject the repository into
   the service directly. The extra interface costs a small class, and buys tests that run against a
-  hand-written fake with no Spring and no mocking library, and a structure that matches the other four
-  implementations, which makes the five easy to compare.
+  hand-written fake with no Spring and no mocking library, and a structure that matches the other three
+  backends, which makes the four easy to compare.
 - **Sealed result types.** `CreateResult` and `FollowResult` are sealed interfaces of records, so a
   `switch` over them must cover every case or it doesn't compile. Expected outcomes are values; only
   genuine failures are exceptions.
@@ -395,5 +395,5 @@ Each of these is a choice with a reason, and the trade-off is stated so it can b
 - **Configuration is validated at startup, and the pool is lazy.** A bad setting stops the process with
   a clear message; a slow database doesn't.
 - **Formatting is checked, not argued about.** Spotless with google-java-format in CI.
-- **The contract is pinned and tested,** so "same behaviour in five languages" is checked on every push,
+- **The contract is shared and tested,** so "same behaviour in four languages" is checked on every push,
   not just claimed.
